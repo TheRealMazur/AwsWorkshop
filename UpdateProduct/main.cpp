@@ -23,14 +23,13 @@ using Aws::Utils::Json::JsonValue;
 class ProductHandler {
    public:
     ProductHandler() = default;
-    invocation_response handler(Aws::String id,
-                                Aws::Utils::Json::JsonView body) {
-        return getProduct(id, body);
+    invocation_response handler(Aws::String id, Aws::String inputJsonString) {
+        return getProduct(id, inputJsonString);
     }
 
    private:
     invocation_response getProduct(Aws::String id,
-                                   Aws::Utils::Json::JsonView inputBody) {
+                                   Aws::String inputJsonString) {
         Aws::Client::ClientConfiguration config;
         config.region = Aws::Environment::GetEnv("AWS_REGION");
         config.caFile = "/etc/pki/tls/certs/ca-bundle.crt";
@@ -42,9 +41,13 @@ class ProductHandler {
         Aws::DynamoDB::Model::GetItemRequest getRequest;
         getRequest.SetTableName("ProductCatalog");
         getRequest.AddKey("id", Aws::DynamoDB::Model::AttributeValue(id));
+        AWS_LOGSTREAM_DEBUG(TAG, "trying to parse json");
+        auto json = JsonValue(inputJsonString);
+        auto inputBody = json.View();
+        AWS_LOGSTREAM_DEBUG(TAG, "parsed json: " << inputBody.WriteReadable());
+        AWS_LOGSTREAM_DEBUG(TAG, "Getting item with id: " << id);
 
-        auto getOutcome = client.GetItem(getRequest);
-
+        const auto& getOutcome = client.GetItem(getRequest);
         if (getOutcome.IsSuccess()) {
             auto itemCopy = getOutcome.GetResult().GetItem();
             if (!itemCopy.empty()) {
@@ -104,7 +107,9 @@ class ProductHandler {
 bool validateInput(const JsonValue& eventJson) {
     return (eventJson.WasParseSuccessful() &&
             eventJson.View().ValueExists("pathParameters") &&
-            eventJson.View().GetObject("pathParameters").ValueExists("id"));
+            eventJson.View().GetObject("pathParameters").ValueExists("id") &&
+            eventJson.View().ValueExists("body") &&
+            JsonValue(eventJson.View().GetString("body")).WasParseSuccessful());
 }
 
 invocation_response myHandler(
@@ -125,7 +130,7 @@ invocation_response myHandler(
     ProductHandler productHandler;
     return productHandler.handler(
         eventJsonView.GetObject("pathParameters").GetString("id"),
-        eventJsonView.GetObject("body"));
+        eventJsonView.GetString("body"));
 }
 std::function<std::shared_ptr<Aws::Utils::Logging::LogSystemInterface>()>
 GetConsoleLoggerFactory() {
